@@ -1,5 +1,9 @@
 from Bio.SeqUtils.ProtParam import ProteinAnalysis
-import csv
+from Bio import SeqIO
+import pandas as pd
+import requests
+import io
+import urllib.parse
 
 
 # takes a str input of your protein sequence and returns the protein properties including AA #, MW, e, and # of Cys residues
@@ -14,7 +18,7 @@ def protein_features(sequence):
     print("Number of amino acids: " + str(amino_acid_number))
     print("Molecular weight: " + str(molecular_weight) + " kDa")
     print("Number of Cysteines: " +
-          str(protein_analysis.amino_acid_number['C']))
+          str(protein_analysis.count_amino_acids()['C']))
     print("Extinction coefficient with disulfid bridges: " +
           str(extinction_coef[1]))
     print("Extinction coefficient with reduced cysteines: " +
@@ -37,8 +41,46 @@ def calculate_protein_conc(OD280, reducing_agent, sequence):
     print("[mol/L, mg/ml]")
     return [molar_concentration, total_mg]  # [mol/L, mg/mL]
 
+# this function takes a protein accession number as an input (int) and returns a pandas dataframe with information from Uniprot
+
+
+def uniprot_search(accession):
+    request_params = {
+        "query": accession,
+        "format": "tsv",
+        "fields": "id,protein_name,gene_primary,organism_name,cc_catalytic_activity,protein_families,ft_motif,ft_domain,xref_alphafolddb"
+        # "columns": "id,entry name,protein names,gene names,organism"
+    }
+
+    response = requests.get(
+        f"https://rest.uniprot.org/uniprotkb/search?{urllib.parse.urlencode(request_params)}"
+    )
+
+    return pd.read_csv(io.StringIO(response.text), sep="\t")
+
+
+def download_uniprot_search(accession):
+    protein_df = uniprot_search(accession)
+
+    features = []
+    for (column_name, column_data) in protein_df.items():
+        features.append(column_name + ": " + str(column_data[0]))
+
+    p = "\n"
+    output_file = p.join(features)
+
+    # to save the file as a .txt
+    with open("protein_features.txt", "w") as output:
+        output.write(str(output_file))
+
+    print("To view AlphaFold Model visit: " +
+          "https://alphafold.ebi.ac.uk/entry/" + accession)
+
+    return
+
 
 # this function takes your protein sequence as input and proposes a purifcation method
+# designed for soluble proteins
 def protein_prep_protocol(sequence, protein_name):
     protein = ProteinAnalysis(sequence)
     instability_index = protein.instability_index()
@@ -72,43 +114,93 @@ def protein_prep_protocol(sequence, protein_name):
 
     # Write a file
     title = "Recommended Protein Purification for " + protein_name
-    header_1 = "Buffer: " + buffer + " " + salt + \
-        " " + reducing_agent + " " + glycerol
-    header_2 = "Protein tags: " + solubility_tag
+    header_1 = "Recommended Buffer: " + buffer + ", " + \
+        salt + " NaCl, " + reducing_agent + ", " + glycerol
+    header_2 = "Protein tags?: " + solubility_tag
 
-    return [title, header_1, header_2]
+    recommendations = [title, header_1, header_2]
+
+    # if you want to generate a list that is separated by returns
+    # p = "\n"
+    # file1 = p.join(recommendations)
+
+    # # to save the file as a .txt
+    # with open("protein_purification_recommendations.txt", "w") as output:
+    #     output.write(str(file1))
+
+    # file2 = p.join(materials)
+    # with open("protein_purification_material.txt", "w") as output:
+    #     output.write(str(file2))
+
+    # file3 = p.join(general_protocol)
+    # with open("protein_purification_protocol.txt", "w") as output:
+    #     output.write(str(file3))
+
+    print(title)
+    print(header_1)
+    print(header_2)
+
+    return
 
 
 materials = [
-    "acrylamide gel for SDS-PAGE",
+    "Acrylamide gel for SDS-PAGE",
     "10X Running buffer",
     "Coomassie Blue stain",
-    "LB broth",
+    "LB broth or 2X YT",
     "500 mL plastic centrifuge bottles",
     "1000X antibiotic stock",
     "1M IPTG (-20C)",
-    "1M stock of buffer at appropriate pH",
-    "5M NaCl stock",
+    "500 mL of 1M stock of buffer at appropriate pH",
+    "500 mL of 5M NaCl",
     "1M DTT stock(-20C)",
     "BME",
     "EDTA-free Protease Inhibitor",
     "DNase",
     "Lysozyme",
     "2L plastic buckets",
-    "1 cm plastic tubing",
+    "1 cm long plastic tubing",
     "10 mL syringe",
     "Purification column",
-    "Nickel or cobalt resin",
-    "FPLC size exclusion column",
-    "Dialysis tubing"
+    "Affinity resin",
+    "Dialysis tubing",
 ]
 
-protocol_1 = [
-    "Transform competent E coli with plasmid",
+general_protocol = [
+    "Transform competent E. coli with plasmid",
     "1. Thaw competent cells over ice ~10 min (50 ul per transformation).",
     "2. Add 30-100 ng of DNA before electroporation.",
     "3. Rescue shocked cells with 300 ul SOB/SOC media.",
     "4. Incubate cells at 37C, 900 rpm for 1 hour.",
     "5. Plate entire transformation on an LB agar plate with selective antibiotic."
-    "6. Incubate plate at 37C overnight."
+    "6. Incubate plate at 37C overnight.",
+    "Growth and protein expression",
+    "1. Scape plate (add 2 mL LB per plate, scrape with bent sterile p200 tip, add 1 mL bacteria into 1L culture)",
+    "2. Add 1 mL of 1000X antibiotic stock to 1L LB.",
+    "3. Incubate at 37C shaking at 220 rpm for ~4 hours or until the optical density at 600 nm reaches 0.5-0.8.",
+    "4. Decrease temperature of shaker to 18C and cool cells on ice for ~10 min.",
+    "5. Add 1 mL 1000X stock (0.2M) IPTG to each L of cells.",
+    "6. Induce at 18C O/N at 180 rpm.",
+    "Harvest cells and enrich protein",
+    "1. Transfer cultures to 500 mL or 1L centrifuge bottles (can be non-sterile).",
+    "2. Pellet cells at 3500 rpm for 30 min at 4C.",
+    "3. Prepare buffer.",
+    "4. Resuspend each liter in 10 mL of buffer.",
+    "5. Transfer to 50 mL conical tube (freeze at -80C O/N or longer). If needed day of you can flash freeze in liquid nitrogen.",
+    "6. Thaw culture at room temperature.",
+    "7. Add DNAse, Lysozyme, protease inhibitor and incubate rocking on ice for 30-60 min.",
+    "8. Transfer to glass beaker on ice and lyse by sonication or fresh press.",
+    "9. Conditions for sonication: 70% amplitude, pulse on 10 sec, off 10 sec for up to 3 min.",
+    "10. Centrifuge lysate at 35,000xg for 30 min at 4C.",
+    "11. Prepare 1L of buffer.",
+    "12. Add resin to glass column (200 - 1000 ul) and wash with molecular grade water to remove storage buffer and then with 3 passes of buffer to equilibrate.",
+    "13. Transfer clarified lysate to column containing pre-equilibrated resin",
+    "14. Allow protein to bind to resin for appropriate amount of time (refer to product manual)",
+    "15. Wash resin bound with protein with 1L of buffer.",
+    "16. Raise 1L bucket containing buffer above the column, clamp thin (1 cm) plastic tubing to bucket and use a syringe to pull buffer through, allow buffer to drip into column at steady state with 2 mL head volume.",
+    "17. After washing, elute protein with recommended concentration of a competitive agent (5 passes).",
+    "18. Run SDS-PAGE of elution as well as samples of other stages of the prep.",
+    "19. Dialyze protein overnight at 4C to remove elution reagent and buffer exchange to desired conditions for further use. (10 mL sample to 2L dialysis buffer).",
+    "20. Depending on purity of elution, one can proceed with additional purification methods such as size exclusion chromatography.",
+    "21. After purification is complete, concentrate protein and store in -80C."
 ]
